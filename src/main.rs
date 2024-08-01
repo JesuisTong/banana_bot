@@ -290,20 +290,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             + (userinfo.lottery_info.countdown_interval as i64 * 60000);
         let rest_time = can_claim_time - utils::get_current_timestamp();
 
-        utils::format_println(&name, &format!("rest_time: {}", rest_time));
+        utils::format_println(&name, &format!("next claim is after: {}secs", (rest_time.max(0) / 1000) | 0));
 
         let arc_user = Arc::new(user);
         tokio::spawn(async move {
-            if rest_time <= 0 {
-                let _ = arc_user.claim().await.map_err(|err| {
-                    utils::format_error(&name, &format!("err: {:?}", err));
-                });
-            } else {
+            if rest_time > 0 {
                 sleep(Duration::from_millis(rest_time as u64 + 1000u64)).await;
-                let _ = arc_user.claim().await.map_err(|err| {
-                    utils::format_error(&name, &format!("err: {:?}", err));
-                });
             }
+            let _ = arc_user.claim().await.map_err(|err| {
+                utils::format_error(&name, &format!("err: {:?}", err));
+            });
             loop {
                 sleep(Duration::from_secs(60 * 60 * 8)).await;
                 let _ = arc_user.claim().await.map_err(|err| {
