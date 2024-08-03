@@ -70,7 +70,7 @@ impl Banana {
         }
     }
 
-    async fn get_user_info(&self) -> Result<BananaUserInfo, Box<dyn std::error::Error>> {
+    fn request(&self) -> (reqwest::Client, HeaderMap) {
         let client = reqwest::Client::new();
         let mut headers = HeaderMap::new();
         utils::init_headers(&mut headers);
@@ -79,6 +79,12 @@ impl Banana {
             AUTHORIZATION,
             HeaderValue::from_str(&format!("Bearer {}", &self.access_token)).unwrap(),
         );
+
+        (client, headers)
+    }
+
+    async fn get_user_info(&self) -> Result<BananaUserInfo, Box<dyn std::error::Error>> {
+        let (client, headers) = self.request();
 
         let response = client
             .get("https://interface.carv.io/banana/get_user_info")
@@ -106,14 +112,7 @@ impl Banana {
         max_click_count: i32,
         today_click_count: i32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let client = reqwest::Client::new();
-        let mut headers = HeaderMap::new();
-        utils::init_headers(&mut headers);
-        headers.insert(COOKIE, HeaderValue::from_str(&self.cookie_token).unwrap());
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {}", &self.access_token)).unwrap(),
-        );
+        let (client, headers) = self.request();
 
         let mut rest_count = max_click_count - today_click_count;
 
@@ -158,14 +157,7 @@ impl Banana {
     async fn claim(&self) -> Result<(), Box<dyn std::error::Error>> {
         utils::format_println(&self.name, "claim start!");
 
-        let client = reqwest::Client::new();
-        let mut headers = HeaderMap::new();
-        utils::init_headers(&mut headers);
-        headers.insert(COOKIE, HeaderValue::from_str(&self.cookie_token).unwrap());
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {}", &self.access_token)).unwrap(),
-        );
+        let (client, headers) = self.request();
 
         let response = client
             .post("https://interface.carv.io/banana/claim_lottery")
@@ -186,7 +178,24 @@ impl Banana {
 
     // async fn post_task() -> Result {}
 
-    // async fn get_task_list() -> Result {}
+    async fn get_task_list() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+
+    }
+
+    // function i() {
+    //     return g.api.get("/banana/get_quest_list")
+    // }
+
+    // function Q(A) {
+    //     return g.api.post("/banana/achieve_quest", {
+    //         data: A
+    //     })
+    // }
+    // function o(A) {
+    //     return g.api.post("/banana/claim_quest", {
+    //         data: A
+    //     })
+    // }
 }
 
 async fn login(
