@@ -156,6 +156,8 @@ impl Banana {
     }
 
     async fn claim(&self) -> Result<(), Box<dyn std::error::Error>> {
+        utils::format_println(&self.name, "claim start!");
+
         let client = reqwest::Client::new();
         let mut headers = HeaderMap::new();
         utils::init_headers(&mut headers);
@@ -177,7 +179,7 @@ impl Banana {
             .send()
             .await?;
 
-        utils::format_println(&self.name, &format!("claim: {:?}", response.status()));
+        utils::format_println(&self.name, &format!("claim done!: {:?}", response.status()));
 
         Ok(())
     }
