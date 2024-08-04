@@ -30,6 +30,7 @@ struct TapData {
 enum BananaErr {
     LoginErr,
     GetUserInfoErr,
+    QuestListErr,
 }
 
 impl Display for BananaErr {
@@ -176,15 +177,71 @@ impl Banana {
         Ok(())
     }
 
-    // async fn post_task() -> Result {}
+    async fn complete_quest(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let (client, headers) = self.request();
 
-    async fn get_task_list() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let quest_list_resp = client
+            .get("https://interface.carv.io/banana/get_quest_list")
+            .headers(headers.clone())
+            .send()
+            .await?;
 
+        if quest_list_resp.status() != StatusCode::OK {
+            utils::format_error(&self.name, "get_quest_list failed");
+            return Err(Box::new(BananaErr::QuestListErr));
+        }
+
+        let quest_list: serde_json::Value =
+            serde_json::from_str(&quest_list_resp.text().await?).unwrap();
+        let quest_list: Vec<serde_json::Value> =
+            serde_json::from_value(quest_list["data"]["quest_list"].clone()).unwrap();
+
+        for quest in quest_list.iter().filter(|x| {
+            let is_achieved = x["is_achieved"].as_bool().unwrap();
+            let is_claimed = x["is_claimed"].as_bool().unwrap();
+            !is_achieved && !is_claimed
+        }) {
+            match quest["quest_type"].as_str().unwrap() {
+                "carv_ios_app" | "carv_android_app" | "retweet_tweet" | "like_tweet"
+                | "follow_on_twitter" | "visit_page" => {
+                    let quest_id = quest["quest_id"].as_i64().unwrap();
+                    let body = json!({
+                        "quest_id": quest_id
+                    });
+                    let response = client
+                        .post("https://interface.carv.io/banana/achieve_quest")
+                        .headers(headers.clone())
+                        .body(body.to_string())
+                        .send()
+                        .await?;
+
+                    utils::format_println(
+                        &self.name,
+                        &format!("achieve quest {}: {:?}", quest_id, response.status()),
+                    );
+
+                    sleep(Duration::from_secs(1)).await;
+                    let response = client
+                        .post("https://interface.carv.io/banana/claim_quest")
+                        .headers(headers.clone())
+                        .body(body.to_string())
+                        .send()
+                        .await?;
+
+                    utils::format_println(
+                        &self.name,
+                        &format!("claim quest {}: {:?}", quest_id, response.status()),
+                    );
+                }
+                _ => {}
+            };
+            sleep(Duration::from_secs(2)).await;
+        }
+
+        utils::format_println(&self.name, "complete_quest done!");
+
+        Ok(())
     }
-
-    // function i() {
-    //     return g.api.get("/banana/get_quest_list")
-    // }
 
     // function Q(A) {
     //     return g.api.post("/banana/achieve_quest", {
@@ -295,22 +352,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .unwrap();
 
-        let can_claim_time = userinfo.lottery_info.last_countdown_start_time
-            + (userinfo.lottery_info.countdown_interval as i64 * 60000);
-        let rest_time = can_claim_time - utils::get_current_timestamp();
-
-        utils::format_println(&name, &format!("next claim is after: {}secs", (rest_time.max(0) / 1000) | 0));
+        user.complete_quest().await.unwrap();
 
         let arc_user = Arc::new(user);
         tokio::spawn(async move {
+            let can_claim_time = userinfo.lottery_info.last_countdown_start_time
+                + (userinfo.lottery_info.countdown_interval as i64 * 60000);
+            let rest_time = can_claim_time - utils::get_current_timestamp();
+
+            utils::format_println(
+                &name,
+                &format!("next claim is after: {}secs", (rest_time.max(0) / 1000) | 0),
+            );
+
             if rest_time > 0 {
                 sleep(Duration::from_millis(rest_time as u64 + 1000u64)).await;
             }
             let _ = arc_user.claim().await.map_err(|err| {
                 utils::format_error(&name, &format!("err: {:?}", err));
             });
+
             loop {
-                sleep(Duration::from_secs(60 * 60 * 8)).await;
+                utils::format_println(&name, "claim loop start!");
+                sleep(Duration::from_secs(60 * 60 * 8 + 10)).await;
+
                 let _ = arc_user.claim().await.map_err(|err| {
                     utils::format_error(&name, &format!("err: {:?}", err));
                 });
