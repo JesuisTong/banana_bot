@@ -243,6 +243,20 @@ impl Banana {
         Ok(())
     }
 
+    async fn do_speedup(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let (client, headers) = self.request();
+
+        let response = client
+            .post("https://interface.carv.io/banana/do_speedup")
+            .headers(headers)
+            .body("{}")
+            .send()
+            .await?;
+
+        utils::format_println(&self.name, &format!("do_speedup: {:?}", response.status()));
+
+        Ok(())
+    }
     // function Q(A) {
     //     return g.api.post("/banana/achieve_quest", {
     //         data: A
@@ -373,6 +387,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
 
             loop {
+                arc_user.do_speedup().await.unwrap();
+
                 utils::format_println(&name, "claim loop start!");
                 sleep(Duration::from_secs(60 * 60 * 8 + 10)).await;
 
