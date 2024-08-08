@@ -243,7 +243,7 @@ impl Banana {
         Ok(())
     }
 
-    async fn do_speedup(&self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn do_speedup(&self) -> Result<Option<i64>, Box<dyn std::error::Error>> {
         let (client, headers) = self.request();
 
         let response = client
@@ -255,18 +255,25 @@ impl Banana {
 
         utils::format_println(&self.name, &format!("do_speedup: {:?}", response.status()));
 
-        Ok(())
+        if response.status() == StatusCode::OK {
+            let data = &response.json::<serde_json::Value>().await?;
+            let code = data["code"].as_i64().unwrap();
+            if code == 0i64 {
+                let can_claim_time = data["data"]["lottery_info"]["last_countdown_start_time"]
+                    .as_i64()
+                    .unwrap()
+                    + (data["data"]["lottery_info"]["countdown_interval"]
+                        .as_i64()
+                        .unwrap()
+                        * 60000);
+                let rest_time = can_claim_time - utils::get_current_timestamp();
+
+                return Ok(Some(rest_time));
+            }
+        }
+
+        Ok(None)
     }
-    // function Q(A) {
-    //     return g.api.post("/banana/achieve_quest", {
-    //         data: A
-    //     })
-    // }
-    // function o(A) {
-    //     return g.api.post("/banana/claim_quest", {
-    //         data: A
-    //     })
-    // }
 }
 
 async fn login(
@@ -346,11 +353,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap();
             user.access_token = Some(access_token);
             user.cookie_token = Some(cookie_token);
+            // update json
+            copy_users.insert(name.clone().to_string(), user.clone());
+            utils::write_config_json(file_path.to_str().unwrap(), &copy_users);
+        } else {
+            copy_users.insert(name.clone().to_string(), user.clone());
+            utils::write_config_json(file_path.to_str().unwrap(), &copy_users);
         }
-
-        // update json
-        copy_users.insert(name.clone().to_string(), user.clone());
-        utils::write_config_json(file_path.to_str().unwrap(), &copy_users);
 
         info!("name: {}, start", &name);
 
@@ -369,6 +378,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         user.complete_quest().await.unwrap();
 
         let arc_user = Arc::new(user);
+
         tokio::spawn(async move {
             let can_claim_time = userinfo.lottery_info.last_countdown_start_time
                 + (userinfo.lottery_info.countdown_interval as i64 * 60000);
@@ -387,10 +397,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
 
             loop {
-                arc_user.do_speedup().await.unwrap();
+                let do_speedup_res = arc_user.do_speedup().await.unwrap();
 
-                utils::format_println(&name, "claim loop start!");
-                sleep(Duration::from_secs(60 * 60 * 8 + 10)).await;
+                let rest_time = match do_speedup_res {
+                    Some(rest_time) => rest_time / 1000 + 10,
+                    None => 60 * 60 * 8 + 10,
+                } as u64;
+                utils::format_println(
+                    &name,
+                    &format!("next claim is after: {}secs", rest_time.max(0)),
+                );
+                sleep(Duration::from_secs(rest_time)).await;
 
                 let _ = arc_user.claim().await.map_err(|err| {
                     utils::format_error(&name, &format!("err: {:?}", err));
