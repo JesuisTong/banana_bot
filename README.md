@@ -15,7 +15,7 @@ A telegram mini GameFI project, get your banana now:
 
 ## Features
 - [✔] Auto login.
-- [✔] Auto claim banana every 8 hours.
+- [✔] Auto claim banana every suitable hours.
 - [✔] Auto tap.
 - [✔] Auto complete tasks.
 - [✔] Auto speed up.
