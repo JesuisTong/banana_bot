@@ -274,6 +274,50 @@ impl Banana {
 
         Ok(None)
     }
+
+    async fn loop_claim_quest_lottery(&self) -> Result<(), Box<dyn std::error::Error>> {
+        while let Some(true) = self.get_quest_is_claimed().await? {
+            self.claim_quest_lottery().await?;
+            sleep(Duration::from_secs(1)).await;
+        }
+        utils::format_println(&self.name, "loop_claim_quest_lottery done!");
+        Ok(())
+    }
+
+    async fn get_quest_is_claimed(&self) -> Result<Option<bool>, Box<dyn std::error::Error>> {
+        let (client, headers) = self.request();
+
+        let response = client
+            .get("https://interface.carv.io/banana/get_quest_list")
+            .headers(headers)
+            .send()
+            .await?;
+
+        if response.status() == StatusCode::OK {
+            let data = response.json::<serde_json::Value>().await?;
+            let code = data["code"].as_i64().expect("code is not a number");
+            if code == 0i64 {
+                let is_claimed = data["data"]["is_claimed"].as_bool().unwrap();
+
+                return Ok(Some(is_claimed));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn claim_quest_lottery(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let (client, headers) = self.request();
+
+        client
+            .post("https://interface.carv.io/banana/claim_quest_lottery")
+            .headers(headers)
+            .body("{}")
+            .send()
+            .await?;
+
+        Ok(())
+    }
 }
 
 async fn login(
@@ -342,7 +386,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let file_path = path::PathBuf::from(std::env::current_dir().unwrap()).join("user.json");
     info!("file_path: {:?}", file_path);
     let users = utils::read_config_json(file_path.to_str().unwrap());
-    let mut copy_users: HashMap<String, User> = HashMap::new();
+    let mut copy_users: HashMap<String, User> = users.clone();
 
     for (name, mut user) in users {
         if user.access_token.is_none() || user.cookie_token.is_none() {
@@ -353,10 +397,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap();
             user.access_token = Some(access_token);
             user.cookie_token = Some(cookie_token);
-            // update json
-            copy_users.insert(name.clone().to_string(), user.clone());
-            utils::write_config_json(file_path.to_str().unwrap(), &copy_users);
-        } else {
+            // overwrite user config
             copy_users.insert(name.clone().to_string(), user.clone());
             utils::write_config_json(file_path.to_str().unwrap(), &copy_users);
         }
@@ -369,13 +410,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             user.cookie_token.unwrap(),
         );
 
-        let userinfo = user.get_user_info().await.unwrap();
+        let userinfo = user
+            .get_user_info()
+            .await
+            .expect(&format!("{} get_user_info failed", &name));
 
         user.do_click(userinfo.max_click_count, userinfo.today_click_count)
             .await
             .unwrap();
 
         user.complete_quest().await.unwrap();
+        user.loop_claim_quest_lottery().await.unwrap();
 
         let arc_user = Arc::new(user);
 
