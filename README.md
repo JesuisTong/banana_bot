@@ -19,6 +19,7 @@ A telegram mini GameFI project, get your banana now:
 - [✔] Auto tap.
 - [✔] Auto complete tasks.
 - [✔] Auto speed up.
+- [✔] Auto claim tasks rewards.
 - [✔] Invite.
 - [✔] Multi account.
 
