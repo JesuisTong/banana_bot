@@ -17,11 +17,12 @@ A telegram mini GameFI project, get your banana now:
 - [✔] Auto login.
 - [✔] Auto claim banana every 8 hours.
 - [✔] Auto tap.
+- [✔] Auto complete tasks.
+- [✔] Auto speed up.
 - [✔] Invite.
 - [✔] Multi account.
 
 ### TODO
-- [] Auto complete tasks.
 - [] Auto harvest your banana.
 - [] Auto switch to your best banana.
 
