@@ -20,12 +20,13 @@ A telegram mini GameFI project, get your banana now:
 - [✔] Auto complete tasks.
 - [✔] Auto speed up.
 - [✔] Auto claim tasks rewards.
+- [✔] Auto harvest your banana.
 - [✔] Invite.
 - [✔] Multi account.
 
 ### TODO
-- [] Auto harvest your banana.
 - [] Auto switch to your best banana.
+- [] sell your repeat banana.
 
 ## Usage
 
@@ -47,6 +48,19 @@ format your `user.json` like this:
     }
 }
 ```
+
+interface:
+```typescript
+interface UserJson {
+    [alias: string]: {
+        link: string;
+        access_token?: string;
+        cookie_token?: string;
+        invite_code?: string;
+    }
+}
+```
+
 
 ## FAQ
 **Q:** How to get your `🍌banana` URL
