@@ -52,6 +52,7 @@ struct LotteryInfo {
     countdown_end: bool,
     countdown_interval: i32,
     last_countdown_start_time: i64,
+    remain_lottery_count: i32,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -94,11 +95,10 @@ impl Banana {
             .await?;
 
         if response.status() == StatusCode::OK {
-            let bui: serde_json::Value =
-                serde_json::from_str(&response.text().await?).map_err(|err| {
-                    utils::format_error(&self.name, &format!("err: {:?}", err));
-                    Box::new(BananaErr::GetUserInfoErr)
-                })?;
+            let bui: serde_json::Value = response.json().await.map_err(|err| {
+                utils::format_error(&self.name, &format!("err: {:?}", err));
+                Box::new(BananaErr::GetUserInfoErr)
+            })?;
             if bui["code"] == 0 {
                 let bui: BananaUserInfo = serde_json::from_value(bui["data"].clone()).unwrap();
                 return Ok(bui);
@@ -177,9 +177,80 @@ impl Banana {
         Ok(())
     }
 
-    async fn complete_quest(&self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn do_lottery(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let userinfo = self.get_user_info().await?;
+
+        if userinfo.lottery_info.remain_lottery_count <= 0 {
+            return Ok(());
+        }
+
+        let (client, headers) = self.request();
+        let mut cnt = userinfo.lottery_info.remain_lottery_count;
+
+        while cnt > 0 {
+            let response = client
+                .post("https://interface.carv.io/banana/do_lottery")
+                .headers(headers.clone())
+                .body("{}")
+                .send()
+                .await?;
+
+            let status = response.status();
+            utils::format_println(&self.name, &format!("do_lottery: {:?}", status));
+
+            if status != StatusCode::OK {
+                break;
+            }
+
+            let result = response.json::<serde_json::Value>().await?;
+            if result["code"].as_i64().unwrap() != 0 {
+                break;
+            }
+
+            utils::format_println(
+                &self.name,
+                &format!(
+                    "id: {}\nname: {:?}\nrarity: {:?}",
+                    result["data"]["banana_id"].as_i64().unwrap(),
+                    result["data"]["name"].as_str().unwrap(),
+                    result["data"]["ripeness"].as_str().unwrap()
+                ),
+            );
+
+            sleep(Duration::from_millis(500)).await;
+            self.do_share(result["data"]["banana_id"].as_i64().unwrap())
+                .await?;
+            sleep(Duration::from_millis(1000)).await;
+            cnt -= 1;
+        }
+
+        utils::format_println(&self.name, "harvest done!");
+
+        Ok(())
+    }
+
+    async fn do_share(&self, banana_id: i64) -> Result<(), Box<dyn std::error::Error>> {
         let (client, headers) = self.request();
 
+        let response = client
+            .post("https://interface.carv.io/banana/do_share")
+            .headers(headers)
+            .body(
+                json!({
+                    "banana_id": banana_id
+                })
+                .to_string(),
+            )
+            .send()
+            .await?;
+
+        utils::format_println(&self.name, &format!("do_share done!: {:?}", response.status()));
+
+        Ok(())
+    }
+
+    async fn complete_quest(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let (client, headers) = self.request();
         let quest_list_resp = client
             .get("https://interface.carv.io/banana/get_quest_list")
             .headers(headers.clone())
@@ -202,8 +273,13 @@ impl Banana {
             !is_achieved && !is_claimed
         }) {
             match quest["quest_type"].as_str().unwrap() {
-                "carv_ios_app" | "carv_android_app" | "retweet_tweet" | "like_tweet"
-                | "follow_on_twitter" | "visit_page" => {
+                "carv_ios_app"
+                | "carv_android_app"
+                | "retweet_tweet"
+                | "like_tweet"
+                | "follow_on_twitter"
+                | "visit_page"
+                | "telegram_join_group" => {
                     let quest_id = quest["quest_id"].as_i64().unwrap();
                     let body = json!({
                         "quest_id": quest_id
@@ -448,20 +524,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Some(rest_time) => rest_time / 1000 + 10,
                     None => 60 * 60 * 8 + 10,
                 } as u64;
+
                 utils::format_println(
                     &name,
                     &format!("next claim is after: {}secs", rest_time.max(0)),
                 );
                 sleep(Duration::from_secs(rest_time)).await;
 
-                let _ = arc_user.claim().await.map_err(|err| {
-                    utils::format_error(&name, &format!("err: {:?}", err));
-                });
+                arc_user.claim().await.map_err(|err| {
+                    utils::format_error(&name, &format!("claim err: {:?}", err));
+                }).ok();
+                arc_user.do_lottery().await.map_err(|err| {
+                    utils::format_error(&name, &format!("do_lottery err: {:?}", err));
+                }).ok();
             }
         });
+
+        sleep(Duration::from_secs(1)).await;
     }
 
-    // TODO: use another way to keep the program running
     // at most 7 days
     sleep(Duration::from_secs(60 * 60 * 24 * 7)).await;
 
