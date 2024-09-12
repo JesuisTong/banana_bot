@@ -1,4 +1,5 @@
 use colog;
+use colored::*;
 use log::info;
 use rand::Rng;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, COOKIE};
@@ -119,6 +120,7 @@ impl Banana {
 
         loop {
             if rest_count <= 0 {
+                self.claim_ads_income(0).await?;
                 break;
             }
 
@@ -221,6 +223,7 @@ impl Banana {
             self.do_share(result["data"]["banana_id"].as_i64().unwrap())
                 .await?;
             sleep(Duration::from_millis(1000)).await;
+            self.claim_ads_income(2).await?;
             cnt -= 1;
         }
 
@@ -244,7 +247,10 @@ impl Banana {
             .send()
             .await?;
 
-        utils::format_println(&self.name, &format!("do_share done!: {:?}", response.status()));
+        utils::format_println(
+            &self.name,
+            &format!("do_share done!: {:?}", response.status()),
+        );
 
         Ok(())
     }
@@ -344,6 +350,8 @@ impl Banana {
                         * 60000);
                 let rest_time = can_claim_time - utils::get_current_timestamp();
 
+                self.claim_ads_income(1).await?;
+
                 return Ok(Some(rest_time));
             }
         }
@@ -391,6 +399,53 @@ impl Banana {
             .body("{}")
             .send()
             .await?;
+
+        Ok(())
+    }
+
+    async fn claim_ads_income(&self, income_type: u8) -> Result<(), Box<dyn std::error::Error>> {
+        let (client, headers) = self.request();
+
+        let response = client
+            .post("https://interface.carv.io/banana/claim_ads_income")
+            .headers(headers)
+            .body(
+                json!({
+                    "type": &income_type
+                })
+                .to_string(),
+            )
+            .send()
+            .await?;
+
+        let status = response.status();
+        if status == StatusCode::OK {
+            let response = response.json::<serde_json::Value>().await?;
+            if response["code"].as_i64().unwrap() == 0 {
+                utils::format_println(
+                    &self.name,
+                    &format!(
+                        "claim_ads_income_{}: {:?}",
+                        income_type,
+                        response["data"]["income"].as_f64().unwrap()
+                    ),
+                );
+            } else {
+                utils::format_error(
+                    &self.name,
+                    &format!(
+                        "claim_ads_income_{} failed: {:?}",
+                        income_type,
+                        response.to_string()
+                    ),
+                );
+            }
+        } else {
+            utils::format_error(
+                &self.name,
+                &format!("claim_ads_income_{} failed", income_type),
+            );
+        }
 
         Ok(())
     }
@@ -457,9 +512,12 @@ async fn login(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     colog::init();
-
     // read user token from file
     let file_path = path::PathBuf::from(std::env::current_dir().unwrap()).join("user.json");
+    println!(
+        "Welcome to Banana Bot 🍌\nFree your hands now!\n\nOfficial website: {}",
+        "https://t.me/OfficialBananaBot/banana?startapp=referral=HHQJ6T4".yellow()
+    );
     info!("file_path: {:?}", file_path);
     let users = utils::read_config_json(file_path.to_str().unwrap());
     let mut copy_users: HashMap<String, User> = users.clone();
@@ -531,12 +589,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 sleep(Duration::from_secs(rest_time)).await;
 
-                arc_user.claim().await.map_err(|err| {
-                    utils::format_error(&name, &format!("claim err: {:?}", err));
-                }).ok();
-                arc_user.do_lottery().await.map_err(|err| {
-                    utils::format_error(&name, &format!("do_lottery err: {:?}", err));
-                }).ok();
+                arc_user
+                    .claim()
+                    .await
+                    .map_err(|err| {
+                        utils::format_error(&name, &format!("claim err: {:?}", err));
+                    })
+                    .ok();
+                arc_user
+                    .do_lottery()
+                    .await
+                    .map_err(|err| {
+                        utils::format_error(&name, &format!("do_lottery err: {:?}", err));
+                    })
+                    .ok();
             }
         });
 
