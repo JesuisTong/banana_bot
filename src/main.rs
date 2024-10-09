@@ -89,24 +89,38 @@ impl Banana {
     async fn get_user_info(&self) -> Result<BananaUserInfo, Box<dyn std::error::Error>> {
         let (client, headers) = self.request();
 
-        let response = client
-            .get("https://interface.carv.io/banana/get_user_info")
-            .headers(headers)
-            .send()
-            .await?;
+        loop {
+            let response = client
+                .get("https://interface.carv.io/banana/get_user_info")
+                .headers(headers.clone())
+                .send()
+                .await?;
 
-        if response.status() == StatusCode::OK {
-            let bui: serde_json::Value = response.json().await.map_err(|err| {
-                utils::format_error(&self.name, &format!("err: {:?}", err));
-                Box::new(BananaErr::GetUserInfoErr)
-            })?;
-            if bui["code"] == 0 {
-                let bui: BananaUserInfo = serde_json::from_value(bui["data"].clone()).unwrap();
-                return Ok(bui);
+            let status = response.status();
+            if status == StatusCode::OK {
+                let bui: serde_json::Value = response.json().await.map_err(|err| {
+                    utils::format_error(&self.name, &format!("err: {:?}", err));
+                    Box::new(BananaErr::GetUserInfoErr)
+                })?;
+                if bui["code"] == 0 {
+                    let bui: BananaUserInfo = serde_json::from_value(bui["data"].clone()).unwrap();
+                    return Ok(bui);
+                }
+            } else if status == StatusCode::TOO_MANY_REQUESTS {
+                // Handle 429 Too Many Requests
+                if let Some(retry_after) = response.headers().get("Retry-After") {
+                    if let Ok(retry_after) = retry_after.to_str() {
+                        if let Ok(retry_after) = retry_after.parse::<u64>() {
+                            println!("Rate limited. Retrying after {} seconds...", retry_after);
+                            sleep(Duration::from_secs(retry_after)).await;
+                            continue;
+                        }
+                    }
+                }
             }
+            println!("Rate limited. Retrying after 60 seconds...");
+            sleep(Duration::from_secs(60)).await;
         }
-        utils::format_error(&self.name, "get_user_info failed");
-        Err(Box::new(BananaErr::GetUserInfoErr))
     }
 
     async fn do_click(
@@ -265,7 +279,8 @@ impl Banana {
 
         if quest_list_resp.status() != StatusCode::OK {
             utils::format_error(&self.name, "get_quest_list failed");
-            return Err(Box::new(BananaErr::QuestListErr));
+            // return Err(Box::new(BananaErr::QuestListErr));
+            return Ok(());
         }
 
         let quest_list: serde_json::Value =
@@ -477,8 +492,8 @@ async fn login(
             .body(body.to_string())
             .send()
             .await?;
-
-        if response.status() == StatusCode::OK {
+        let status = response.status();
+        if status == StatusCode::OK {
             let game_user_token = response
                 .headers()
                 .get_all("set-cookie")
@@ -497,12 +512,14 @@ async fn login(
                 .unwrap();
             let ck = cookie::Cookie::parse(game_user_token).unwrap();
             let (name, value) = ck.name_value();
-            let name_value = name.to_owned() + value;
+            let name_value = name.to_owned() + "=" + value;
 
             let val: serde_json::Value = serde_json::from_str(&response.text().await?).unwrap();
             let token = val["data"]["token"].as_str().unwrap();
 
             return Ok((token.to_string(), name_value));
+        } else {
+            eprintln!("login failed: {:?}", status);
         }
     }
 

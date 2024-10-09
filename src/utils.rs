@@ -1,3 +1,7 @@
+use aes_gcm::{
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+    Aes256Gcm, Key,
+};
 use chrono::Local;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
@@ -5,6 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
+use base64::{engine::general_purpose::STANDARD, Engine};
 
 use reqwest::header::{
     HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, CACHE_CONTROL, CONTENT_TYPE, ORIGIN, PRAGMA,
@@ -31,6 +36,27 @@ pub fn format_error(name: &str, msg: &str) {
     error!("[{}] [{}]: {}", now(), name, msg);
 }
 
+fn aes_gcm_encrypt(plaintext: &str, key_str: &str) -> String {
+    // 将密钥字符串转换为 32 字节的密钥
+    let key_bytes = key_str.as_bytes();
+    let mut key = [0u8; 32];
+    key[..key_bytes.len()].copy_from_slice(key_bytes);
+
+    // 创建 AES-GCM 加密器
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
+
+    // 生成随机 nonce
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
+
+    // 加密数据
+    let ciphertext = cipher.encrypt(&nonce, plaintext.as_bytes().as_ref()).unwrap();
+
+    // 将 nonce 和密文连接起来，并进行 Base64 编码
+    let mut result = nonce.to_vec();
+    result.extend_from_slice(&ciphertext);
+    STANDARD.encode(result)
+}
+
 pub fn init_headers(h: &mut HeaderMap) -> &mut HeaderMap {
     h.insert(
         ACCEPT,
@@ -53,6 +79,13 @@ pub fn init_headers(h: &mut HeaderMap) -> &mut HeaderMap {
     h.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
     h.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
     h.insert("x-app-id", HeaderValue::from_static("carv"));
+
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    let now = since_the_epoch.as_millis().to_string();
+    h.insert("request-time", HeaderValue::from_str(&aes_gcm_encrypt(&now, "1,1,0")).unwrap());
     h.insert(
         REFERRER_POLICY,
         HeaderValue::from_static("strict-origin-when-cross-origin"),
